@@ -38,7 +38,6 @@ public class AuthController {
         }
         return ResponseEntity.badRequest().body("Failed to send OTP");
     }
-
     @PostMapping("/forgot-password")
     public ResponseEntity<String> forgotPassword(@RequestParam String email) {
         boolean sent = authService.forgotPassword(email);
