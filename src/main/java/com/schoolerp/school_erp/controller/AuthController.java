@@ -89,11 +89,12 @@ public class AuthController {
      * 
      * Constraints:
      * - Requires the X-Tenant-ID header.
-     * - The email address must belong to a registered user in the tenant school.
+     * - The mobile number must belong to a registered user in the tenant school.
+     * - Allowed maximum of 5 times per user.
      */
     @PostMapping("/forgot-password")
-    public ResponseEntity<String> forgotPassword(@RequestParam String email) {
-        boolean sent = authService.forgotPassword(email);
+    public ResponseEntity<String> forgotPassword(@RequestParam String mobileNo) {
+        boolean sent = authService.forgotPassword(mobileNo);
         if (sent) {
             return ResponseEntity.ok("Password reset OTP sent to WhatsApp");
         }

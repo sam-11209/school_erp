@@ -59,6 +59,10 @@ public class User {
     @Builder.Default
     private Integer otpResendCount = 0;
 
+    @Column(name = "forgot_password_count", nullable = false)
+    @Builder.Default
+    private Integer forgotPasswordCount = 0;
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
         name = "user_roles",

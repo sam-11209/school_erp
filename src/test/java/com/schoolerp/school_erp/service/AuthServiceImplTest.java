@@ -205,4 +205,31 @@ class AuthServiceImplTest {
             authService.resendOTP("9876543210");
         });
     }
+
+    @Test
+    void testForgotPassword_Success() {
+        user.setForgotPasswordCount(2);
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
+                .thenReturn(Optional.of(user));
+
+        boolean result = authService.forgotPassword("9876543210");
+
+        assertTrue(result);
+        assertEquals(3, user.getForgotPasswordCount());
+        assertNotNull(user.getLoginOtp());
+        assertNotNull(user.getLoginOtpExpiresAt());
+        verify(userRepository).save(user);
+        verify(notificationService).sendOTP(eq("9876543210"), eq(user.getLoginOtp()));
+    }
+
+    @Test
+    void testForgotPassword_MaxAttemptsReached() {
+        user.setForgotPasswordCount(5);
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
+                .thenReturn(Optional.of(user));
+
+        assertThrows(IllegalStateException.class, () -> {
+            authService.forgotPassword("9876543210");
+        });
+    }
 }

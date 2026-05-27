@@ -8,6 +8,6 @@ public interface AuthService {
     boolean verifyOTP(String mobileNo, String code);
     boolean sendOTP(String mobileNo);
     boolean resendOTP(String mobileNo);
-    boolean forgotPassword(String email);
+    boolean forgotPassword(String mobileNo);
     boolean changePassword(String email, String oldPassword, String newPassword);
 }

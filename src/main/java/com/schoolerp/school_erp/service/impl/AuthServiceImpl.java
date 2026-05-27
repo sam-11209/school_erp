@@ -203,15 +203,28 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public boolean forgotPassword(String email) {
+    @Transactional
+    public boolean forgotPassword(String mobileNo) {
         UUID schoolId = TenantContext.getCurrentTenant();
-        User user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, email)
-                .orElseThrow(() -> new IllegalArgumentException("Email address not found."));
+        if (schoolId == null) {
+            throw new IllegalStateException("Tenant School ID must be provided in request header.");
+        }
+        User user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, mobileNo)
+                .orElseThrow(() -> new IllegalArgumentException("User not found with this mobile number."));
 
-        // Validate count limits (can verify reset log counts per month)
-        log.info("Generating forgot password WhatsApp OTP for user: {}", user.getEmail());
-        String otpCode = "555555"; // Stub reset code
-        notificationFactory.getService("whatsapp").sendOTP(user.getEmail(), otpCode);
+        if (user.getForgotPasswordCount() >= 5) {
+            throw new IllegalStateException("Maximum forgot password attempts reached (5 times).");
+        }
+
+        log.info("Generating forgot password WhatsApp OTP for mobile: {}", mobileNo);
+        String otpCode = String.valueOf((int) (Math.random() * 900000) + 100000); // 6 digit OTP
+        
+        user.setLoginOtp(otpCode);
+        user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
+        user.setForgotPasswordCount(user.getForgotPasswordCount() + 1);
+        userRepository.save(user);
+
+        notificationFactory.getService("whatsapp").sendOTP(mobileNo, otpCode);
         return true;
     }
 
