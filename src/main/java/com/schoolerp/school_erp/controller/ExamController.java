@@ -4,9 +4,8 @@ import com.schoolerp.school_erp.dto.ExamCreateRequest;
 import com.schoolerp.school_erp.dto.ExamMarkRequest;
 import com.schoolerp.school_erp.dto.ExamMarkResponse;
 import com.schoolerp.school_erp.dto.GradebookResponse;
-import com.schoolerp.school_erp.entity.User;
-import com.schoolerp.school_erp.enums.RoleType;
-import com.schoolerp.school_erp.repository.UserRepository;
+import com.schoolerp.school_erp.security.RequiresRoles;
+import com.schoolerp.school_erp.security.UserContext;
 import com.schoolerp.school_erp.service.ExamService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,52 +23,20 @@ public class ExamController {
     @Autowired
     private ExamService examService;
 
-    @Autowired
-    private UserRepository userRepository;
-
     @PostMapping("/create")
+    @RequiresRoles({"SUPER_ADMIN", "ADMIN", "PRINCIPAL", "TEACHER"})
     public ResponseEntity<?> createExam(
-            @Valid @RequestBody ExamCreateRequest request,
-            @RequestHeader("X-User-ID") UUID creatorUserId) {
+            @Valid @RequestBody ExamCreateRequest request) {
 
-        User user = userRepository.findById(creatorUserId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-
-        boolean isAuthorized = user.getRoles().stream().anyMatch(role -> 
-            role.getName().equalsIgnoreCase("SUPER_ADMIN") || 
-            role.getName().equalsIgnoreCase("ADMIN") || 
-            role.getName().equalsIgnoreCase("PRINCIPAL") || 
-            role.getName().equalsIgnoreCase("TEACHER")
-        );
-
-        if (!isAuthorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("Unauthorized: Only Teachers, Principals, or Admins can create tests/exams.");
-        }
-
+        UUID creatorUserId = UserContext.getCurrentUser();
         ExamMarkResponse response = examService.createExam(request, creatorUserId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/marks")
+    @RequiresRoles({"SUPER_ADMIN", "ADMIN", "PRINCIPAL", "TEACHER"})
     public ResponseEntity<?> enterMarks(
-            @Valid @RequestBody ExamMarkRequest request,
-            @RequestHeader("X-User-ID") UUID teacherUserId) {
-
-        User user = userRepository.findById(teacherUserId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-
-        boolean isAuthorized = user.getRoles().stream().anyMatch(role -> 
-            role.getName().equalsIgnoreCase("SUPER_ADMIN") || 
-            role.getName().equalsIgnoreCase("ADMIN") || 
-            role.getName().equalsIgnoreCase("PRINCIPAL") || 
-            role.getName().equalsIgnoreCase("TEACHER")
-        );
-
-        if (!isAuthorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("Unauthorized: Only Teachers, Principals, or Admins can enter student marks.");
-        }
+            @Valid @RequestBody ExamMarkRequest request) {
 
         ExamMarkResponse response = examService.enterMarks(request);
         return ResponseEntity.ok(response);

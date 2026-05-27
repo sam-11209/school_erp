@@ -17,6 +17,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.schoolerp.school_erp.security.TokenService;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -29,6 +30,9 @@ public class AuthServiceImpl implements AuthService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private TokenService tokenService;
 
     @Autowired
     private NotificationFactory notificationFactory;
@@ -86,7 +90,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         return LoginResponse.builder()
-                .token("mock-jwt-token-for-" + user.getId())
+                .token(tokenService.generateToken(user.getId(), user.getRoles().stream().map(Role::getName).collect(Collectors.toSet())))
                 .email(user.getEmail())
                 .roles(user.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
                 .schoolName(user.getSchool().getName())
