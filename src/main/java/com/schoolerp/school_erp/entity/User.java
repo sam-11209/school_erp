@@ -42,6 +42,23 @@ public class User {
     @Column(name = "locked_until")
     private OffsetDateTime lockedUntil;
 
+    @Column(name = "mobile_no")
+    private String mobileNo;
+
+    @Column(name = "login_otp")
+    private String loginOtp;
+
+    @Column(name = "login_otp_expires_at")
+    private OffsetDateTime loginOtpExpiresAt;
+
+    @Column(name = "otp_used", nullable = false)
+    @Builder.Default
+    private Boolean otpUsed = false;
+
+    @Column(name = "otp_resend_count", nullable = false)
+    @Builder.Default
+    private Integer otpResendCount = 0;
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
         name = "user_roles",

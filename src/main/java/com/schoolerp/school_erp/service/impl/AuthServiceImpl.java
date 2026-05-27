@@ -77,9 +77,17 @@ public class AuthServiceImpl implements AuthService {
 
         // Check MFA
         if (mfaEnabled) {
+            if (Boolean.TRUE.equals(user.getOtpUsed())) {
+                throw new IllegalStateException("OTP login is only allowed once and has already been used.");
+            }
             String otpCode = String.valueOf((int) (Math.random() * 900000) + 100000); // 6 digit OTP
+            user.setLoginOtp(otpCode);
+            user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5)); // Valid for 5 minutes
+            user.setOtpResendCount(0); // Initialize resend count
+            userRepository.save(user);
+
             NotificationService whatsapp = notificationFactory.getService("whatsapp");
-            whatsapp.sendOTP(user.getEmail(), otpCode);
+            whatsapp.sendOTP(user.getMobileNo() != null ? user.getMobileNo() : user.getEmail(), otpCode);
             
             return LoginResponse.builder()
                     .email(user.getEmail())
@@ -98,21 +106,96 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public boolean verifyOTP(String email, String code) {
         log.info("Verifying WhatsApp OTP: {} for email: {}", code, email);
-        // OTP validation logic mapping verified credentials
-        return "123456".equals(code) || code.length() == 6; // Stub validation
+        UUID schoolId = TenantContext.getCurrentTenant();
+        if (schoolId == null) {
+            throw new IllegalStateException("Tenant School ID must be provided in request header.");
+        }
+
+        User user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, email)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        if (Boolean.TRUE.equals(user.getOtpUsed())) {
+            log.warn("OTP login has already been used for user: {}", email);
+            return false;
+        }
+
+        if (user.getLoginOtp() == null || user.getLoginOtpExpiresAt() == null) {
+            log.warn("No active OTP request found for user: {}", email);
+            return false;
+        }
+
+        if (user.getLoginOtpExpiresAt().isBefore(OffsetDateTime.now())) {
+            log.warn("OTP has expired for user: {}", email);
+            return false;
+        }
+
+        if (!user.getLoginOtp().equals(code)) {
+            log.warn("OTP code mismatch for user: {}", email);
+            return false;
+        }
+
+        // Clear OTP on successful validation and mark as used
+        user.setLoginOtp(null);
+        user.setLoginOtpExpiresAt(null);
+        user.setOtpUsed(true);
+        user.setOtpResendCount(0); // Reset count
+        userRepository.save(user);
+        return true;
     }
 
     @Override
+    @Transactional
     public boolean sendOTP(String mobileNo) {
         UUID schoolId = TenantContext.getCurrentTenant();
         if (schoolId == null) {
             throw new IllegalStateException("Tenant School ID must be provided in request header.");
         }
 
+        User user = userRepository.findBySchoolIdAndMobileNoAndOtpUsedFalseAndDeletedAtIsNull(schoolId, mobileNo)
+                .orElseThrow(() -> new IllegalArgumentException("User not found with this mobile number or OTP login has already been used."));
+
         log.info("Generating login OTP for mobile: {} under school: {}", mobileNo, schoolId);
         String otpCode = String.valueOf((int) (Math.random() * 900000) + 100000); // 6 digit OTP
+        
+        user.setLoginOtp(otpCode);
+        user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
+        user.setOtpResendCount(0); // Initialize resend count
+        userRepository.save(user);
+
+        notificationFactory.getService("whatsapp").sendOTP(mobileNo, otpCode);
+        return true;
+    }
+
+    @Override
+    @Transactional
+    public boolean resendOTP(String mobileNo) {
+        UUID schoolId = TenantContext.getCurrentTenant();
+        if (schoolId == null) {
+            throw new IllegalStateException("Tenant School ID must be provided in request header.");
+        }
+
+        User user = userRepository.findBySchoolIdAndMobileNoAndOtpUsedFalseAndDeletedAtIsNull(schoolId, mobileNo)
+                .orElseThrow(() -> new IllegalArgumentException("User not found with this mobile number or OTP login has already been used."));
+
+        if (user.getLoginOtp() == null) {
+            throw new IllegalStateException("No active OTP request found. Please request a new OTP first.");
+        }
+
+        if (user.getOtpResendCount() >= 3) {
+            throw new IllegalStateException("Maximum resend attempts reached. Please request a new OTP.");
+        }
+
+        log.info("Resending login OTP for mobile: {} under school: {}, attempt {}/3", mobileNo, schoolId, user.getOtpResendCount() + 1);
+        String otpCode = String.valueOf((int) (Math.random() * 900000) + 100000); // Generate new 6-digit OTP
+        
+        user.setLoginOtp(otpCode);
+        user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
+        user.setOtpResendCount(user.getOtpResendCount() + 1);
+        userRepository.save(user);
+
         notificationFactory.getService("whatsapp").sendOTP(mobileNo, otpCode);
         return true;
     }

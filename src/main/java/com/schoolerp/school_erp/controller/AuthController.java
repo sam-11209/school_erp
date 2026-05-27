@@ -20,6 +20,24 @@ public class AuthController {
         LoginResponse response = authService.login(request);
         return ResponseEntity.ok(response);
     }
+    
+    @PostMapping("/send-otp")
+    public ResponseEntity<String> sendOTP(@RequestParam String mobileNo) {
+        boolean sent = authService.sendOTP(mobileNo);
+        if (sent) {
+            return ResponseEntity.ok("OTP sent successfully to WhatsApp");
+        }
+        return ResponseEntity.badRequest().body("Failed to send OTP");
+    }
+
+    @PostMapping("/resend-otp")
+    public ResponseEntity<String> resendOTP(@RequestParam String mobileNo) {
+        boolean sent = authService.resendOTP(mobileNo);
+        if (sent) {
+            return ResponseEntity.ok("OTP resent successfully to WhatsApp");
+        }
+        return ResponseEntity.badRequest().body("Failed to resend OTP");
+    }
 
     @PostMapping("/verify-otp")
     public ResponseEntity<String> verifyOTP(@RequestParam String email, @RequestParam String code) {
@@ -30,14 +48,6 @@ public class AuthController {
         return ResponseEntity.badRequest().body("Invalid or expired OTP");
     }
 
-    @PostMapping("/send-otp")
-    public ResponseEntity<String> sendOTP(@RequestParam String mobileNo) {
-        boolean sent = authService.sendOTP(mobileNo);
-        if (sent) {
-            return ResponseEntity.ok("OTP sent successfully to WhatsApp");
-        }
-        return ResponseEntity.badRequest().body("Failed to send OTP");
-    }
     @PostMapping("/forgot-password")
     public ResponseEntity<String> forgotPassword(@RequestParam String email) {
         boolean sent = authService.forgotPassword(email);
