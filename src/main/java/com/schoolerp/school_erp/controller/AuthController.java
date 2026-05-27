@@ -16,8 +16,8 @@ public class AuthController {
     private AuthService authService;
 
     /**
-     * Authenticates a user by email and password under a specific tenant.
-     * If MFA is enabled, triggers an OTP send to the user's mobile number (or email) and returns
+     * Authenticates a user by mobile number and password under a specific tenant.
+     * If MFA is enabled, triggers an OTP send to the user's mobile number and returns
      * an "MFA_REQUIRED" status without generating a session token.
      * 
      * Constraints:
@@ -67,7 +67,7 @@ public class AuthController {
     }
 
     /**
-     * Verifies the provided OTP code against the database record for the user's email.
+     * Verifies the provided OTP code against the database record for the user's mobile number.
      * 
      * Constraints:
      * - Requires the X-Tenant-ID header.
@@ -76,8 +76,8 @@ public class AuthController {
      * - On successful verification, clears the OTP fields and marks otp_used as true (preventing future OTP logins).
      */
     @PostMapping("/verify-otp")
-    public ResponseEntity<String> verifyOTP(@RequestParam String email, @RequestParam String code) {
-        boolean isValid = authService.verifyOTP(email, code);
+    public ResponseEntity<String> verifyOTP(@RequestParam String mobileNo, @RequestParam String code) {
+        boolean isValid = authService.verifyOTP(mobileNo, code);
         if (isValid) {
             return ResponseEntity.ok("OTP verified successfully");
         }

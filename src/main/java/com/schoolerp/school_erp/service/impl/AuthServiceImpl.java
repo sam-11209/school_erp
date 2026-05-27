@@ -50,7 +50,7 @@ public class AuthServiceImpl implements AuthService {
         if (schoolId == null) {
             throw new IllegalStateException("Tenant School ID must be provided in request header.");
         }
-        User user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, request.getEmail())
+        User user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, request.getMobileNo())
                 .orElseThrow(() -> new IllegalArgumentException("Invalid username or password"));
 
         // Check Lockout
@@ -64,7 +64,7 @@ public class AuthServiceImpl implements AuthService {
             user.setFailedLoginAttempts(attempts);
             if (attempts >= maxFailedAttempts) {
                 user.setLockedUntil(OffsetDateTime.now().plusMinutes(15)); // Lock for 15 mins
-                log.warn("User account locked due to excessive failed logins: {}", user.getEmail());
+                log.warn("User account locked due to excessive failed logins: {}", user.getMobileNo());
             }
             userRepository.save(user);
             throw new IllegalArgumentException("Invalid username or password");
@@ -87,10 +87,11 @@ public class AuthServiceImpl implements AuthService {
             userRepository.save(user);
 
             NotificationService whatsapp = notificationFactory.getService("whatsapp");
-            whatsapp.sendOTP(user.getMobileNo() != null ? user.getMobileNo() : user.getEmail(), otpCode);
+            whatsapp.sendOTP(user.getMobileNo(), otpCode);
             
             return LoginResponse.builder()
                     .email(user.getEmail())
+                    .mobileNo(user.getMobileNo())
                     .status("MFA_REQUIRED")
                     .schoolName(user.getSchool().getName())
                     .build();
@@ -99,6 +100,7 @@ public class AuthServiceImpl implements AuthService {
         return LoginResponse.builder()
                 .token(tokenService.generateToken(user.getId(), user.getRoles().stream().map(Role::getName).collect(Collectors.toSet())))
                 .email(user.getEmail())
+                .mobileNo(user.getMobileNo())
                 .roles(user.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
                 .schoolName(user.getSchool().getName())
                 .status("SUCCESS")
@@ -107,33 +109,33 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
-    public boolean verifyOTP(String email, String code) {
-        log.info("Verifying WhatsApp OTP: {} for email: {}", code, email);
+    public boolean verifyOTP(String mobileNo, String code) {
+        log.info("Verifying WhatsApp OTP: {} for mobileNo: {}", code, mobileNo);
         UUID schoolId = TenantContext.getCurrentTenant();
         if (schoolId == null) {
             throw new IllegalStateException("Tenant School ID must be provided in request header.");
         }
 
-        User user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, email)
+        User user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, mobileNo)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         if (Boolean.TRUE.equals(user.getOtpUsed())) {
-            log.warn("OTP login has already been used for user: {}", email);
+            log.warn("OTP login has already been used for user: {}", mobileNo);
             return false;
         }
 
         if (user.getLoginOtp() == null || user.getLoginOtpExpiresAt() == null) {
-            log.warn("No active OTP request found for user: {}", email);
+            log.warn("No active OTP request found for user: {}", mobileNo);
             return false;
         }
 
         if (user.getLoginOtpExpiresAt().isBefore(OffsetDateTime.now())) {
-            log.warn("OTP has expired for user: {}", email);
+            log.warn("OTP has expired for user: {}", mobileNo);
             return false;
         }
 
         if (!user.getLoginOtp().equals(code)) {
-            log.warn("OTP code mismatch for user: {}", email);
+            log.warn("OTP code mismatch for user: {}", mobileNo);
             return false;
         }
 

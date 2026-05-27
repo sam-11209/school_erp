@@ -5,7 +5,7 @@ import com.schoolerp.school_erp.dto.LoginResponse;
 
 public interface AuthService {
     LoginResponse login(LoginRequest request);
-    boolean verifyOTP(String email, String code);
+    boolean verifyOTP(String mobileNo, String code);
     boolean sendOTP(String mobileNo);
     boolean resendOTP(String mobileNo);
     boolean forgotPassword(String email);

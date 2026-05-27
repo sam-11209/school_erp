@@ -1,9 +1,12 @@
 package com.schoolerp.school_erp.service;
 
+import com.schoolerp.school_erp.dto.LoginRequest;
+import com.schoolerp.school_erp.dto.LoginResponse;
 import com.schoolerp.school_erp.entity.School;
 import com.schoolerp.school_erp.entity.User;
 import com.schoolerp.school_erp.filter.TenantContext;
 import com.schoolerp.school_erp.repository.UserRepository;
+import com.schoolerp.school_erp.security.TokenService;
 import com.schoolerp.school_erp.service.impl.AuthServiceImpl;
 import com.schoolerp.school_erp.strategy.NotificationFactory;
 import com.schoolerp.school_erp.strategy.NotificationService;
@@ -12,8 +15,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.time.OffsetDateTime;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -29,11 +34,15 @@ class AuthServiceImplTest {
     private UserRepository userRepository;
 
     @Mock
+    private TokenService tokenService;
+
+    @Mock
     private NotificationFactory notificationFactory;
 
     @Mock
     private NotificationService notificationService;
 
+    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
     private UUID schoolId;
     private User user;
 
@@ -47,12 +56,42 @@ class AuthServiceImplTest {
         user.setId(UUID.randomUUID());
         user.setEmail("test@school.com");
         user.setMobileNo("9876543210");
+        user.setPasswordHash(encoder.encode("password"));
         user.setIsActive(true);
         user.setOtpUsed(false);
         user.setFailedLoginAttempts(0);
+        user.setRoles(Collections.emptySet());
         user.setSchool(School.builder().name("Test School").build());
 
         when(notificationFactory.getService("whatsapp")).thenReturn(notificationService);
+    }
+
+    @Test
+    void testLogin_Success() {
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
+                .thenReturn(Optional.of(user));
+        when(tokenService.generateToken(any(), any())).thenReturn("mock-token");
+
+        LoginRequest request = new LoginRequest("9876543210", "password");
+        LoginResponse response = authService.login(request);
+
+        assertNotNull(response);
+        assertEquals("SUCCESS", response.getStatus());
+        assertEquals("mock-token", response.getToken());
+        assertEquals("test@school.com", response.getEmail());
+        assertEquals("9876543210", response.getMobileNo());
+    }
+
+    @Test
+    void testLogin_InvalidCredentials() {
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
+                .thenReturn(Optional.of(user));
+
+        LoginRequest request = new LoginRequest("9876543210", "wrong-password");
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            authService.login(request);
+        });
     }
 
     @Test
@@ -75,10 +114,10 @@ class AuthServiceImplTest {
         user.setLoginOtp("123456");
         user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
 
-        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.verifyOTP("test@school.com", "123456");
+        boolean result = authService.verifyOTP("9876543210", "123456");
 
         assertTrue(result);
         assertNull(user.getLoginOtp());
@@ -93,10 +132,10 @@ class AuthServiceImplTest {
         user.setLoginOtp("123456");
         user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
 
-        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.verifyOTP("test@school.com", "123456");
+        boolean result = authService.verifyOTP("9876543210", "123456");
 
         assertFalse(result);
     }
@@ -106,10 +145,10 @@ class AuthServiceImplTest {
         user.setLoginOtp("123456");
         user.setLoginOtpExpiresAt(OffsetDateTime.now().minusMinutes(1)); // Already expired
 
-        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.verifyOTP("test@school.com", "123456");
+        boolean result = authService.verifyOTP("9876543210", "123456");
 
         assertFalse(result);
         assertEquals("123456", user.getLoginOtp()); // Shouldn't clear since it failed
@@ -120,10 +159,10 @@ class AuthServiceImplTest {
         user.setLoginOtp("123456");
         user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
 
-        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.verifyOTP("test@school.com", "999999");
+        boolean result = authService.verifyOTP("9876543210", "999999");
 
         assertFalse(result);
     }
