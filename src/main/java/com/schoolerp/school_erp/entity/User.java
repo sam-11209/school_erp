@@ -51,6 +51,9 @@ public class User {
     @Column(name = "login_otp_expires_at")
     private OffsetDateTime loginOtpExpiresAt;
 
+    @Column(name = "login_otp_id")
+    private UUID loginOtpId;
+
     @Column(name = "otp_used", nullable = false)
     @Builder.Default
     private Boolean otpUsed = false;

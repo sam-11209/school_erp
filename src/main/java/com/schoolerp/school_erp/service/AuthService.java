@@ -1,13 +1,12 @@
 package com.schoolerp.school_erp.service;
 
-import com.schoolerp.school_erp.dto.LoginRequest;
-import com.schoolerp.school_erp.dto.LoginResponse;
+import com.schoolerp.school_erp.dto.*;
 
 public interface AuthService {
     LoginResponse login(LoginRequest request);
-    boolean verifyOTP(String mobileNo, String code);
-    boolean sendOTP(String mobileNo);
-    boolean resendOTP(String mobileNo);
-    boolean forgotPassword(String mobileNo);
+    boolean verifyOTP(VerifyOtpRequest request);
+    SendOtpResponse sendOTP(SendOtpRequest request);
+    SendOtpResponse resendOTP(ResendOtpRequest request);
+    boolean forgotPassword(String email, String mobileNo);
     boolean changePassword(String email, String oldPassword, String newPassword);
 }

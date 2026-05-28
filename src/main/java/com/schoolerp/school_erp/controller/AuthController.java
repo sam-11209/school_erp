@@ -1,7 +1,6 @@
 package com.schoolerp.school_erp.controller;
 
-import com.schoolerp.school_erp.dto.LoginRequest;
-import com.schoolerp.school_erp.dto.LoginResponse;
+import com.schoolerp.school_erp.dto.*;
 import com.schoolerp.school_erp.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,13 +15,14 @@ public class AuthController {
     private AuthService authService;
 
     /**
-     * Authenticates a user by mobile number and password under a specific tenant.
+     * Authenticates a user by mobile number or email and password under a specific tenant.
      * If MFA is enabled, triggers an OTP send to the user's mobile number and returns
      * an "MFA_REQUIRED" status without generating a session token.
      * 
      * Constraints:
      * - Requires the X-Tenant-ID header to resolve the school context.
      * - Blocks MFA login if the user has already logged in with an OTP (otp_used is true).
+     * - The request body must contain either email or mobileNo along with password.
      */
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
@@ -31,53 +31,59 @@ public class AuthController {
     }
     
     /**
-     * Generates and sends a new 6-digit OTP code to the provided mobile number via WhatsApp.
+     * Generates and sends a new 6-digit OTP code to the provided email and/or mobile number.
      * 
      * Constraints:
      * - Requires the X-Tenant-ID header.
-     * - The mobile number must belong to a registered user within the tenant school.
+     * - The request body must contain either emailId or mobileNo.
+     * - Checks if the user belongs to the tenant school.
      * - Blocks requests if the user has already logged in with an OTP (otp_used is true).
      * - Resets the OTP resend count to 0.
+     * 
+     * @param request payload containing emailId, mobileNo, sendEmail, and sendSms flags
+     * @return SendOtpResponse containing generated otpId and sent coordinates
      */
     @PostMapping("/send-otp")
-    public ResponseEntity<String> sendOTP(@RequestParam String mobileNo) {
-        boolean sent = authService.sendOTP(mobileNo);
-        if (sent) {
-            return ResponseEntity.ok("OTP sent successfully to WhatsApp");
-        }
-        return ResponseEntity.badRequest().body("Failed to send OTP");
+    public ResponseEntity<?> sendOTP(@Valid @RequestBody SendOtpRequest request) {
+        SendOtpResponse response = authService.sendOTP(request);
+        return ResponseEntity.ok(response);
     }
 
     /**
-     * Resends a new 6-digit OTP code for the active OTP session to the specified mobile number.
+     * Resends a new 6-digit OTP code for the active OTP session.
      * 
      * Constraints:
      * - Requires the X-Tenant-ID header.
-     * - Must have an active, initialized OTP session.
+     * - Must have an active, initialized OTP session matching the provided otpId.
      * - Maximum 3 resend attempts allowed per session (resend count is tracked).
      * - Blocks requests if the user has already logged in with an OTP (otp_used is true).
+     * 
+     * @param request payload specifying otpId, emailId, and mobileNo coordinates
+     * @return SendOtpResponse containing otpId and sent coordinates
      */
     @PostMapping("/resend-otp")
-    public ResponseEntity<String> resendOTP(@RequestParam String mobileNo) {
-        boolean sent = authService.resendOTP(mobileNo);
-        if (sent) {
-            return ResponseEntity.ok("OTP resent successfully to WhatsApp");
-        }
-        return ResponseEntity.badRequest().body("Failed to resend OTP");
+    public ResponseEntity<?> resendOTP(@Valid @RequestBody ResendOtpRequest request) {
+        SendOtpResponse response = authService.resendOTP(request);
+        return ResponseEntity.ok(response);
     }
 
     /**
-     * Verifies the provided OTP code against the database record for the user's mobile number.
+     * Verifies the provided OTP code against the database record.
      * 
      * Constraints:
      * - Requires the X-Tenant-ID header.
+     * - Requires verifyOtpRequest containing otpId, code, and optional emailId/mobileNo.
      * - Checks if the stored OTP exists, matches the input code, and is not expired (expires in 5 minutes).
+     * - Verifies that the user matches the provided identifier (email takes priority over mobile number).
      * - Blocks requests if the user has already logged in with an OTP (otp_used is true).
      * - On successful verification, clears the OTP fields and marks otp_used as true (preventing future OTP logins).
+     * 
+     * @param request payload containing verification details
+     * @return verification status response
      */
     @PostMapping("/verify-otp")
-    public ResponseEntity<String> verifyOTP(@RequestParam String mobileNo, @RequestParam String code) {
-        boolean isValid = authService.verifyOTP(mobileNo, code);
+    public ResponseEntity<String> verifyOTP(@Valid @RequestBody VerifyOtpRequest request) {
+        boolean isValid = authService.verifyOTP(request);
         if (isValid) {
             return ResponseEntity.ok("OTP verified successfully");
         }
@@ -85,18 +91,21 @@ public class AuthController {
     }
 
     /**
-     * Generates and sends a password reset OTP to the user's WhatsApp.
+     * Generates and sends a password reset OTP to the user's email or WhatsApp.
      * 
      * Constraints:
      * - Requires the X-Tenant-ID header.
-     * - The mobile number must belong to a registered user in the tenant school.
+     * - Requires either email or mobile number to identify the registered user.
+     * - If email is provided, OTP is sent via email; if mobileNo is provided (and email is not), OTP is sent via WhatsApp.
      * - Allowed maximum of 5 times per user.
      */
     @PostMapping("/forgot-password")
-    public ResponseEntity<String> forgotPassword(@RequestParam String mobileNo) {
-        boolean sent = authService.forgotPassword(mobileNo);
+    public ResponseEntity<String> forgotPassword(
+            @RequestParam(required = false) String email,
+            @RequestParam(required = false) String mobileNo) {
+        boolean sent = authService.forgotPassword(email, mobileNo);
         if (sent) {
-            return ResponseEntity.ok("Password reset OTP sent to WhatsApp");
+            return ResponseEntity.ok("Password reset OTP sent successfully");
         }
         return ResponseEntity.badRequest().body("Failed to send reset link");
     }

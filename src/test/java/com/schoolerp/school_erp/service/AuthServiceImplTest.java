@@ -1,7 +1,6 @@
 package com.schoolerp.school_erp.service;
 
-import com.schoolerp.school_erp.dto.LoginRequest;
-import com.schoolerp.school_erp.dto.LoginResponse;
+import com.schoolerp.school_erp.dto.*;
 import com.schoolerp.school_erp.entity.School;
 import com.schoolerp.school_erp.entity.User;
 import com.schoolerp.school_erp.filter.TenantContext;
@@ -72,7 +71,23 @@ class AuthServiceImplTest {
                 .thenReturn(Optional.of(user));
         when(tokenService.generateToken(any(), any())).thenReturn("mock-token");
 
-        LoginRequest request = new LoginRequest("9876543210", "password");
+        LoginRequest request = new LoginRequest(null, "9876543210", "password");
+        LoginResponse response = authService.login(request);
+
+        assertNotNull(response);
+        assertEquals("SUCCESS", response.getStatus());
+        assertEquals("mock-token", response.getToken());
+        assertEquals("test@school.com", response.getEmail());
+        assertEquals("9876543210", response.getMobileNo());
+    }
+
+    @Test
+    void testLogin_Success_WithEmail() {
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+                .thenReturn(Optional.of(user));
+        when(tokenService.generateToken(any(), any())).thenReturn("mock-token");
+
+        LoginRequest request = new LoginRequest("test@school.com", null, "password");
         LoginResponse response = authService.login(request);
 
         assertNotNull(response);
@@ -87,7 +102,7 @@ class AuthServiceImplTest {
         when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        LoginRequest request = new LoginRequest("9876543210", "wrong-password");
+        LoginRequest request = new LoginRequest(null, "9876543210", "wrong-password");
 
         assertThrows(IllegalArgumentException.class, () -> {
             authService.login(request);
@@ -96,12 +111,16 @@ class AuthServiceImplTest {
 
     @Test
     void testSendOTP_Success() {
-        when(userRepository.findBySchoolIdAndMobileNoAndOtpUsedFalseAndDeletedAtIsNull(schoolId, "9876543210"))
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.sendOTP("9876543210");
+        SendOtpRequest request = new SendOtpRequest("9876543210", true, null, false);
+        SendOtpResponse response = authService.sendOTP(request);
 
-        assertTrue(result);
+        assertNotNull(response);
+        assertNotNull(response.getOtpId());
+        assertEquals("9876543210", response.getMobileNo());
+        assertNull(response.getEmailId());
         assertNotNull(user.getLoginOtp());
         assertNotNull(user.getLoginOtpExpiresAt());
         assertTrue(user.getLoginOtpExpiresAt().isAfter(OffsetDateTime.now()));
@@ -111,16 +130,20 @@ class AuthServiceImplTest {
 
     @Test
     void testVerifyOTP_Success() {
+        UUID otpId = UUID.randomUUID();
         user.setLoginOtp("123456");
+        user.setLoginOtpId(otpId);
         user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
 
         when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.verifyOTP("9876543210", "123456");
+        VerifyOtpRequest request = new VerifyOtpRequest(otpId.toString(), "9876543210", null, "123456");
+        boolean result = authService.verifyOTP(request);
 
         assertTrue(result);
         assertNull(user.getLoginOtp());
+        assertNull(user.getLoginOtpId());
         assertNull(user.getLoginOtpExpiresAt());
         assertTrue(user.getOtpUsed());
         verify(userRepository).save(user);
@@ -128,27 +151,33 @@ class AuthServiceImplTest {
 
     @Test
     void testVerifyOTP_AlreadyUsed() {
+        UUID otpId = UUID.randomUUID();
         user.setOtpUsed(true);
         user.setLoginOtp("123456");
+        user.setLoginOtpId(otpId);
         user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
 
         when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.verifyOTP("9876543210", "123456");
+        VerifyOtpRequest request = new VerifyOtpRequest(otpId.toString(), "9876543210", null, "123456");
+        boolean result = authService.verifyOTP(request);
 
         assertFalse(result);
     }
 
     @Test
     void testVerifyOTP_Expired() {
+        UUID otpId = UUID.randomUUID();
         user.setLoginOtp("123456");
+        user.setLoginOtpId(otpId);
         user.setLoginOtpExpiresAt(OffsetDateTime.now().minusMinutes(1)); // Already expired
 
         when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.verifyOTP("9876543210", "123456");
+        VerifyOtpRequest request = new VerifyOtpRequest(otpId.toString(), "9876543210", null, "123456");
+        boolean result = authService.verifyOTP(request);
 
         assertFalse(result);
         assertEquals("123456", user.getLoginOtp()); // Shouldn't clear since it failed
@@ -156,27 +185,35 @@ class AuthServiceImplTest {
 
     @Test
     void testVerifyOTP_Mismatch() {
+        UUID otpId = UUID.randomUUID();
         user.setLoginOtp("123456");
+        user.setLoginOtpId(otpId);
         user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
 
         when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.verifyOTP("9876543210", "999999");
+        VerifyOtpRequest request = new VerifyOtpRequest(otpId.toString(), "9876543210", null, "999999");
+        boolean result = authService.verifyOTP(request);
 
         assertFalse(result);
     }
 
     @Test
     void testResendOTP_Success() {
+        UUID otpId = UUID.randomUUID();
         user.setLoginOtp("123456");
+        user.setLoginOtpId(otpId);
         user.setOtpResendCount(1);
-        when(userRepository.findBySchoolIdAndMobileNoAndOtpUsedFalseAndDeletedAtIsNull(schoolId, "9876543210"))
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.resendOTP("9876543210");
+        ResendOtpRequest request = new ResendOtpRequest(otpId.toString(), "9876543210", null);
+        SendOtpResponse response = authService.resendOTP(request);
 
-        assertTrue(result);
+        assertNotNull(response);
+        assertEquals(otpId.toString(), response.getOtpId());
+        assertEquals("9876543210", response.getMobileNo());
         assertEquals(2, user.getOtpResendCount());
         assertNotEquals("123456", user.getLoginOtp()); // generated new code
         verify(userRepository).save(user);
@@ -184,35 +221,120 @@ class AuthServiceImplTest {
     }
 
     @Test
-    void testResendOTP_MaxAttemptsReached() {
+    void testResendOTP_EmailOnly() {
+        UUID otpId = UUID.randomUUID();
         user.setLoginOtp("123456");
-        user.setOtpResendCount(3);
-        when(userRepository.findBySchoolIdAndMobileNoAndOtpUsedFalseAndDeletedAtIsNull(schoolId, "9876543210"))
+        user.setLoginOtpId(otpId);
+        user.setOtpResendCount(1);
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+                .thenReturn(Optional.of(user));
+        when(notificationFactory.getService("email")).thenReturn(notificationService);
+
+        ResendOtpRequest request = ResendOtpRequest.builder()
+                .otpId(otpId.toString())
+                .emailId("test@school.com")
+                .sendEmail(true)
+                .sendSms(false)
+                .build();
+        SendOtpResponse response = authService.resendOTP(request);
+
+        assertNotNull(response);
+        assertEquals(otpId.toString(), response.getOtpId());
+        assertEquals("test@school.com", response.getEmailId());
+        assertNull(response.getMobileNo());
+        assertEquals(2, user.getOtpResendCount());
+        verify(notificationService).sendOTP(eq("test@school.com"), eq(user.getLoginOtp()));
+    }
+
+    @Test
+    void testResendOTP_MobileOnly() {
+        UUID otpId = UUID.randomUUID();
+        user.setLoginOtp("123456");
+        user.setLoginOtpId(otpId);
+        user.setOtpResendCount(1);
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
+        ResendOtpRequest request = ResendOtpRequest.builder()
+                .otpId(otpId.toString())
+                .mobileNo("9876543210")
+                .sendSms(true)
+                .sendEmail(false)
+                .build();
+        SendOtpResponse response = authService.resendOTP(request);
+
+        assertNotNull(response);
+        assertEquals(otpId.toString(), response.getOtpId());
+        assertEquals("9876543210", response.getMobileNo());
+        assertNull(response.getEmailId());
+        assertEquals(2, user.getOtpResendCount());
+        verify(notificationService).sendOTP(eq("9876543210"), eq(user.getLoginOtp()));
+    }
+
+    @Test
+    void testResendOTP_Both() {
+        UUID otpId = UUID.randomUUID();
+        user.setLoginOtp("123456");
+        user.setLoginOtpId(otpId);
+        user.setOtpResendCount(1);
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+                .thenReturn(Optional.of(user));
+        when(notificationFactory.getService("email")).thenReturn(notificationService);
+
+        ResendOtpRequest request = ResendOtpRequest.builder()
+                .otpId(otpId.toString())
+                .emailId("test@school.com")
+                .mobileNo("9876543210")
+                .sendEmail(true)
+                .sendSms(true)
+                .build();
+        SendOtpResponse response = authService.resendOTP(request);
+
+        assertNotNull(response);
+        assertEquals(otpId.toString(), response.getOtpId());
+        assertEquals("test@school.com", response.getEmailId());
+        assertEquals("9876543210", response.getMobileNo());
+        assertEquals(2, user.getOtpResendCount());
+        verify(notificationService).sendOTP(eq("test@school.com"), eq(user.getLoginOtp()));
+        verify(notificationService).sendOTP(eq("9876543210"), eq(user.getLoginOtp()));
+    }
+
+    @Test
+    void testResendOTP_MaxAttemptsReached() {
+        UUID otpId = UUID.randomUUID();
+        user.setLoginOtp("123456");
+        user.setLoginOtpId(otpId);
+        user.setOtpResendCount(3);
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
+                .thenReturn(Optional.of(user));
+
+        ResendOtpRequest request = new ResendOtpRequest(otpId.toString(), "9876543210", null);
         assertThrows(IllegalStateException.class, () -> {
-            authService.resendOTP("9876543210");
+            authService.resendOTP(request);
         });
     }
 
     @Test
     void testResendOTP_NoActiveSession() {
+        UUID otpId = UUID.randomUUID();
         user.setLoginOtp(null); // No active session
-        when(userRepository.findBySchoolIdAndMobileNoAndOtpUsedFalseAndDeletedAtIsNull(schoolId, "9876543210"))
+        user.setLoginOtpId(otpId);
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
+        ResendOtpRequest request = new ResendOtpRequest(otpId.toString(), "9876543210", null);
         assertThrows(IllegalStateException.class, () -> {
-            authService.resendOTP("9876543210");
+            authService.resendOTP(request);
         });
     }
 
     @Test
-    void testForgotPassword_Success() {
+    void testForgotPassword_Success_Mobile() {
         user.setForgotPasswordCount(2);
         when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
-        boolean result = authService.forgotPassword("9876543210");
+        boolean result = authService.forgotPassword(null, "9876543210");
 
         assertTrue(result);
         assertEquals(3, user.getForgotPasswordCount());
@@ -223,13 +345,40 @@ class AuthServiceImplTest {
     }
 
     @Test
+    void testForgotPassword_Success_Email() {
+        user.setForgotPasswordCount(2);
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+                .thenReturn(Optional.of(user));
+        when(notificationFactory.getService("email")).thenReturn(notificationService);
+
+        boolean result = authService.forgotPassword("test@school.com", null);
+
+        assertTrue(result);
+        assertEquals(3, user.getForgotPasswordCount());
+        assertNotNull(user.getLoginOtp());
+        assertNotNull(user.getLoginOtpExpiresAt());
+        verify(userRepository).save(user);
+        verify(notificationService).sendOTP(eq("test@school.com"), eq(user.getLoginOtp()));
+    }
+
+    @Test
     void testForgotPassword_MaxAttemptsReached() {
         user.setForgotPasswordCount(5);
         when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, "9876543210"))
                 .thenReturn(Optional.of(user));
 
         assertThrows(IllegalStateException.class, () -> {
-            authService.forgotPassword("9876543210");
+            authService.forgotPassword(null, "9876543210");
+        });
+    }
+
+    @Test
+    void testForgotPassword_BothNullOrEmpty() {
+        assertThrows(IllegalArgumentException.class, () -> {
+            authService.forgotPassword(null, null);
+        });
+        assertThrows(IllegalArgumentException.class, () -> {
+            authService.forgotPassword("   ", "");
         });
     }
 }

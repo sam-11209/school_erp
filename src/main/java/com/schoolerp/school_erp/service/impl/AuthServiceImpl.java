@@ -1,7 +1,6 @@
 package com.schoolerp.school_erp.service.impl;
 
-import com.schoolerp.school_erp.dto.LoginRequest;
-import com.schoolerp.school_erp.dto.LoginResponse;
+import com.schoolerp.school_erp.dto.*;
 import com.schoolerp.school_erp.entity.Role;
 import com.schoolerp.school_erp.entity.User;
 import com.schoolerp.school_erp.filter.TenantContext;
@@ -50,8 +49,17 @@ public class AuthServiceImpl implements AuthService {
         if (schoolId == null) {
             throw new IllegalStateException("Tenant School ID must be provided in request header.");
         }
-        User user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, request.getMobileNo())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid username or password"));
+
+        User user;
+        if (request.getEmail() != null && !request.getEmail().trim().isEmpty()) {
+            user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, request.getEmail().trim())
+                    .orElseThrow(() -> new IllegalArgumentException("Invalid username or password"));
+        } else if (request.getMobileNo() != null && !request.getMobileNo().trim().isEmpty()) {
+            user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, request.getMobileNo().trim())
+                    .orElseThrow(() -> new IllegalArgumentException("Invalid username or password"));
+        } else {
+            throw new IllegalArgumentException("Either email or mobile number must be provided");
+        }
 
         // Check Lockout
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(OffsetDateTime.now())) {
@@ -64,7 +72,7 @@ public class AuthServiceImpl implements AuthService {
             user.setFailedLoginAttempts(attempts);
             if (attempts >= maxFailedAttempts) {
                 user.setLockedUntil(OffsetDateTime.now().plusMinutes(15)); // Lock for 15 mins
-                log.warn("User account locked due to excessive failed logins: {}", user.getMobileNo());
+                log.warn("User account locked due to excessive failed logins: {}", user.getMobileNo() != null ? user.getMobileNo() : user.getEmail());
             }
             userRepository.save(user);
             throw new IllegalArgumentException("Invalid username or password");
@@ -109,38 +117,72 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
-    public boolean verifyOTP(String mobileNo, String code) {
-        log.info("Verifying WhatsApp OTP: {} for mobileNo: {}", code, mobileNo);
+    public boolean verifyOTP(VerifyOtpRequest request) {
+        log.info("Verifying OTP for request: {}", request);
         UUID schoolId = TenantContext.getCurrentTenant();
         if (schoolId == null) {
             throw new IllegalStateException("Tenant School ID must be provided in request header.");
         }
 
-        User user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, mobileNo)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        String otpIdStr = request.getOtpId();
+        if (otpIdStr == null || otpIdStr.trim().isEmpty()) {
+            throw new IllegalArgumentException("otpId is required for verification");
+        }
+        UUID otpId;
+        try {
+            otpId = UUID.fromString(otpIdStr);
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid otpId UUID format: {}", otpIdStr);
+            return false;
+        }
+
+        String emailId = request.getEmailId();
+        String mobileNo = request.getMobileNo();
+
+        User user = null;
+        if (emailId != null && !emailId.trim().isEmpty()) {
+            user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, emailId.trim())
+                    .orElse(null);
+        }
+
+        if (user == null && mobileNo != null && !mobileNo.trim().isEmpty()) {
+            user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, mobileNo.trim())
+                    .orElse(null);
+        }
+
+        if (user == null) {
+            log.warn("User not found for verify-otp request: emailId={}, mobileNo={}", emailId, mobileNo);
+            return false;
+        }
+
+        if (!otpId.equals(user.getLoginOtpId())) {
+            log.warn("otpId mismatch: expected {}, got {}", user.getLoginOtpId(), otpId);
+            return false;
+        }
 
         if (Boolean.TRUE.equals(user.getOtpUsed())) {
-            log.warn("OTP login has already been used for user: {}", mobileNo);
+            log.warn("OTP login has already been used for user: {}", user.getId());
             return false;
         }
 
         if (user.getLoginOtp() == null || user.getLoginOtpExpiresAt() == null) {
-            log.warn("No active OTP request found for user: {}", mobileNo);
+            log.warn("No active OTP request found for user: {}", user.getId());
             return false;
         }
 
         if (user.getLoginOtpExpiresAt().isBefore(OffsetDateTime.now())) {
-            log.warn("OTP has expired for user: {}", mobileNo);
+            log.warn("OTP has expired for user: {}", user.getId());
             return false;
         }
 
-        if (!user.getLoginOtp().equals(code)) {
-            log.warn("OTP code mismatch for user: {}", mobileNo);
+        if (!user.getLoginOtp().equals(request.getCode())) {
+            log.warn("OTP code mismatch");
             return false;
         }
 
         // Clear OTP on successful validation and mark as used
         user.setLoginOtp(null);
+        user.setLoginOtpId(null);
         user.setLoginOtpExpiresAt(null);
         user.setOtpUsed(true);
         user.setOtpResendCount(0); // Reset count
@@ -150,37 +192,97 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
-    public boolean sendOTP(String mobileNo) {
+    public SendOtpResponse sendOTP(SendOtpRequest request) {
         UUID schoolId = TenantContext.getCurrentTenant();
         if (schoolId == null) {
             throw new IllegalStateException("Tenant School ID must be provided in request header.");
         }
 
-        User user = userRepository.findBySchoolIdAndMobileNoAndOtpUsedFalseAndDeletedAtIsNull(schoolId, mobileNo)
-                .orElseThrow(() -> new IllegalArgumentException("User not found with this mobile number or OTP login has already been used."));
+        String emailId = request.getEmailId();
+        String mobileNo = request.getMobileNo();
 
-        log.info("Generating login OTP for mobile: {} under school: {}", mobileNo, schoolId);
+        if ((emailId == null || emailId.trim().isEmpty()) && (mobileNo == null || mobileNo.trim().isEmpty())) {
+            throw new IllegalArgumentException("Either email or mobile number must be provided");
+        }
+
+        User user;
+        if (emailId != null && !emailId.trim().isEmpty()) {
+            user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, emailId.trim())
+                    .orElseThrow(() -> new IllegalArgumentException("User not found with this email."));
+        } else {
+            user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, mobileNo.trim())
+                    .orElseThrow(() -> new IllegalArgumentException("User not found with this mobile number."));
+        }
+
+        if (Boolean.TRUE.equals(user.getOtpUsed())) {
+            throw new IllegalStateException("OTP login is only allowed once and has already been used.");
+        }
+
+        UUID otpId = UUID.randomUUID();
         String otpCode = String.valueOf((int) (Math.random() * 900000) + 100000); // 6 digit OTP
-        
+
         user.setLoginOtp(otpCode);
+        user.setLoginOtpId(otpId);
         user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
         user.setOtpResendCount(0); // Initialize resend count
         userRepository.save(user);
 
-        notificationFactory.getService("whatsapp").sendOTP(mobileNo, otpCode);
-        return true;
+        SendOtpResponse.SendOtpResponseBuilder responseBuilder = SendOtpResponse.builder().otpId(otpId.toString());
+
+        if (request.isSendEmail() && emailId != null && !emailId.trim().isEmpty()) {
+            notificationFactory.getService("email").sendOTP(emailId.trim(), otpCode);
+            responseBuilder.emailId(emailId.trim());
+        }
+
+        if (request.isSendSms() && mobileNo != null && !mobileNo.trim().isEmpty()) {
+            notificationFactory.getService("whatsapp").sendOTP(mobileNo.trim(), otpCode);
+            responseBuilder.mobileNo(mobileNo.trim());
+        }
+
+        return responseBuilder.build();
     }
 
     @Override
     @Transactional
-    public boolean resendOTP(String mobileNo) {
+    public SendOtpResponse resendOTP(ResendOtpRequest request) {
+        log.info("Resending OTP for request: {}", request);
         UUID schoolId = TenantContext.getCurrentTenant();
         if (schoolId == null) {
             throw new IllegalStateException("Tenant School ID must be provided in request header.");
         }
 
-        User user = userRepository.findBySchoolIdAndMobileNoAndOtpUsedFalseAndDeletedAtIsNull(schoolId, mobileNo)
-                .orElseThrow(() -> new IllegalArgumentException("User not found with this mobile number or OTP login has already been used."));
+        String otpIdStr = request.getOtpId();
+        if (otpIdStr == null || otpIdStr.trim().isEmpty()) {
+            throw new IllegalArgumentException("otpId is required for resending OTP");
+        }
+        UUID otpId;
+        try {
+            otpId = UUID.fromString(otpIdStr);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid otpId UUID format: " + otpIdStr);
+        }
+
+        String emailId = request.getEmailId();
+        String mobileNo = request.getMobileNo();
+
+        User user = null;
+        if (emailId != null && !emailId.trim().isEmpty()) {
+            user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, emailId.trim())
+                    .orElse(null);
+        }
+
+        if (user == null && mobileNo != null && !mobileNo.trim().isEmpty()) {
+            user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, mobileNo.trim())
+                    .orElse(null);
+        }
+
+        if (user == null) {
+            throw new IllegalArgumentException("User not found with matching email or mobile number.");
+        }
+
+        if (!otpId.equals(user.getLoginOtpId())) {
+            throw new IllegalArgumentException("Invalid otpId session.");
+        }
 
         if (user.getLoginOtp() == null) {
             throw new IllegalStateException("No active OTP request found. Please request a new OTP first.");
@@ -190,7 +292,7 @@ public class AuthServiceImpl implements AuthService {
             throw new IllegalStateException("Maximum resend attempts reached. Please request a new OTP.");
         }
 
-        log.info("Resending login OTP for mobile: {} under school: {}, attempt {}/3", mobileNo, schoolId, user.getOtpResendCount() + 1);
+        log.info("Resending OTP for user: {}, attempt {}/3", user.getId(), user.getOtpResendCount() + 1);
         String otpCode = String.valueOf((int) (Math.random() * 900000) + 100000); // Generate new 6-digit OTP
         
         user.setLoginOtp(otpCode);
@@ -198,25 +300,56 @@ public class AuthServiceImpl implements AuthService {
         user.setOtpResendCount(user.getOtpResendCount() + 1);
         userRepository.save(user);
 
-        notificationFactory.getService("whatsapp").sendOTP(mobileNo, otpCode);
-        return true;
+        SendOtpResponse.SendOtpResponseBuilder responseBuilder = SendOtpResponse.builder().otpId(otpId.toString());
+
+        boolean resendToEmail = request.isSendEmail();
+        boolean resendToSms = request.isSendSms();
+
+        // Fallback if neither flag is set to true
+        if (!resendToEmail && !resendToSms) {
+            resendToEmail = (emailId != null && !emailId.trim().isEmpty());
+            resendToSms = (mobileNo != null && !mobileNo.trim().isEmpty());
+        }
+
+        if (resendToEmail && emailId != null && !emailId.trim().isEmpty()) {
+            notificationFactory.getService("email").sendOTP(emailId.trim(), otpCode);
+            responseBuilder.emailId(emailId.trim());
+        }
+
+        if (resendToSms && mobileNo != null && !mobileNo.trim().isEmpty()) {
+            notificationFactory.getService("whatsapp").sendOTP(mobileNo.trim(), otpCode);
+            responseBuilder.mobileNo(mobileNo.trim());
+        }
+
+        return responseBuilder.build();
     }
 
     @Override
     @Transactional
-    public boolean forgotPassword(String mobileNo) {
+    public boolean forgotPassword(String email, String mobileNo) {
         UUID schoolId = TenantContext.getCurrentTenant();
         if (schoolId == null) {
             throw new IllegalStateException("Tenant School ID must be provided in request header.");
         }
-        User user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, mobileNo)
-                .orElseThrow(() -> new IllegalArgumentException("User not found with this mobile number."));
+
+        if ((email == null || email.trim().isEmpty()) && (mobileNo == null || mobileNo.trim().isEmpty())) {
+            throw new IllegalArgumentException("Either email or mobile number must be provided");
+        }
+
+        User user;
+        if (email != null && !email.trim().isEmpty()) {
+            user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, email.trim())
+                    .orElseThrow(() -> new IllegalArgumentException("User not found with this email."));
+        } else {
+            user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, mobileNo.trim())
+                    .orElseThrow(() -> new IllegalArgumentException("User not found with this mobile number."));
+        }
 
         if (user.getForgotPasswordCount() >= 5) {
             throw new IllegalStateException("Maximum forgot password attempts reached (5 times).");
         }
 
-        log.info("Generating forgot password WhatsApp OTP for mobile: {}", mobileNo);
+        log.info("Generating forgot password OTP for user: {}", (email != null && !email.trim().isEmpty()) ? email : mobileNo);
         String otpCode = String.valueOf((int) (Math.random() * 900000) + 100000); // 6 digit OTP
         
         user.setLoginOtp(otpCode);
@@ -224,7 +357,11 @@ public class AuthServiceImpl implements AuthService {
         user.setForgotPasswordCount(user.getForgotPasswordCount() + 1);
         userRepository.save(user);
 
-        notificationFactory.getService("whatsapp").sendOTP(mobileNo, otpCode);
+        if (email != null && !email.trim().isEmpty()) {
+            notificationFactory.getService("email").sendOTP(email.trim(), otpCode);
+        } else {
+            notificationFactory.getService("whatsapp").sendOTP(mobileNo.trim(), otpCode);
+        }
         return true;
     }
 

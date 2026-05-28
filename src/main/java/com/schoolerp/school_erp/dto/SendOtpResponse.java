@@ -1,19 +1,16 @@
 package com.schoolerp.school_erp.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class LoginRequest {
-
-    private String email;
-
+@Builder
+public class SendOtpResponse {
+    private String otpId;
     private String mobileNo;
-
-    @NotBlank(message = "Password is required")
-    private String password;
+    private String emailId;
 }
