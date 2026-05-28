@@ -15,6 +15,28 @@ public class AuthController {
     private AuthService authService;
 
     /**
+     * Registers a new school and its corresponding administrator user.
+     * 
+     * Constraints:
+     * - No X-Tenant-ID header is required for this call.
+     * - The request body must contain all registration details: fullName, mobileNo, schoolName, emailAddress, password, and confirmPassword.
+     * - The password and confirmPassword fields must match exactly.
+     * - Generates a unique school subdomain automatically from the provided schoolName.
+     * - Automatically registers the newly created user under the ADMIN role for the new school.
+     * 
+     * @param request payload containing user and school registration details
+     * @return registration success message
+     */
+    @PostMapping("/register")
+    public ResponseEntity<String> register(@Valid @RequestBody RegisterRequest request) {
+        boolean registered = authService.register(request);
+        if (registered) {
+            return ResponseEntity.ok("Registration successful");
+        }
+        return ResponseEntity.badRequest().body("Registration failed");
+    }
+
+    /**
      * Authenticates a user by mobile number or email and password under a specific tenant.
      * If MFA is enabled, triggers an OTP send to the user's mobile number and returns
      * an "MFA_REQUIRED" status without generating a session token.

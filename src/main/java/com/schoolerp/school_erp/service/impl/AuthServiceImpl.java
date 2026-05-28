@@ -2,9 +2,12 @@ package com.schoolerp.school_erp.service.impl;
 
 import com.schoolerp.school_erp.dto.*;
 import com.schoolerp.school_erp.entity.Role;
+import com.schoolerp.school_erp.entity.School;
 import com.schoolerp.school_erp.entity.User;
 import com.schoolerp.school_erp.filter.TenantContext;
 import com.schoolerp.school_erp.repository.UserRepository;
+import com.schoolerp.school_erp.repository.SchoolRepository;
+import com.schoolerp.school_erp.repository.RoleRepository;
 import com.schoolerp.school_erp.service.AuthService;
 import com.schoolerp.school_erp.strategy.NotificationFactory;
 import com.schoolerp.school_erp.strategy.NotificationService;
@@ -29,6 +32,12 @@ public class AuthServiceImpl implements AuthService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private SchoolRepository schoolRepository;
+
+    @Autowired
+    private RoleRepository roleRepository;
 
     @Autowired
     private TokenService tokenService;
@@ -113,6 +122,74 @@ public class AuthServiceImpl implements AuthService {
                 .schoolName(user.getSchool().getName())
                 .status("SUCCESS")
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public boolean register(RegisterRequest request) {
+        log.info("Registering user/school: fullName={}, mobileNo={}, schoolName={}, email={}",
+                request.getFullName(), request.getMobileNo(), request.getSchoolName(), request.getEmailAddress());
+
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            throw new IllegalArgumentException("Passwords do not match");
+        }
+
+        // Generate unique subdomain from School Name
+        String baseSubdomain = request.getSchoolName().toLowerCase()
+                .replaceAll("[^a-z0-9]", "-")
+                .replaceAll("-+", "-")
+                .replaceAll("^-|-$", "");
+        
+        if (baseSubdomain.isEmpty()) {
+            baseSubdomain = "school-" + UUID.randomUUID().toString().substring(0, 8);
+        }
+
+        String subdomain = baseSubdomain;
+        int suffix = 1;
+        while (schoolRepository.findBySubdomainAndDeletedAtIsNull(subdomain).isPresent()) {
+            subdomain = baseSubdomain + "-" + suffix;
+            suffix++;
+        }
+
+        // Create and save School
+        School school = School.builder()
+                .name(request.getSchoolName().trim())
+                .subdomain(subdomain)
+                .isActive(true)
+                .build();
+        school = schoolRepository.save(school);
+
+        // Create and save default Admin Role for this School
+        Role adminRole = Role.builder()
+                .school(school)
+                .name("ADMIN")
+                .description("School Administrator")
+                .isSystemRole(true)
+                .build();
+        adminRole = roleRepository.save(adminRole);
+
+        // Verify that user does not already exist for this school (in case they have same email/mobile)
+        if (userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(school.getId(), request.getEmailAddress().trim()).isPresent()) {
+            throw new IllegalArgumentException("User with this email already exists for this school.");
+        }
+        if (userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(school.getId(), request.getMobileNo().trim()).isPresent()) {
+            throw new IllegalArgumentException("User with this mobile number already exists for this school.");
+        }
+
+        // Create and save User
+        User user = User.builder()
+                .school(school)
+                .fullName(request.getFullName().trim())
+                .email(request.getEmailAddress().trim())
+                .mobileNo(request.getMobileNo().trim())
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .isActive(true)
+                .roles(java.util.Set.of(adminRole))
+                .build();
+        userRepository.save(user);
+
+        log.info("Successfully registered school {} (subdomain: {}) and admin user {}", school.getName(), subdomain, user.getEmail());
+        return true;
     }
 
     @Override

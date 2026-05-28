@@ -3,8 +3,11 @@ package com.schoolerp.school_erp.service;
 import com.schoolerp.school_erp.dto.*;
 import com.schoolerp.school_erp.entity.School;
 import com.schoolerp.school_erp.entity.User;
+import com.schoolerp.school_erp.entity.Role;
 import com.schoolerp.school_erp.filter.TenantContext;
 import com.schoolerp.school_erp.repository.UserRepository;
+import com.schoolerp.school_erp.repository.SchoolRepository;
+import com.schoolerp.school_erp.repository.RoleRepository;
 import com.schoolerp.school_erp.security.TokenService;
 import com.schoolerp.school_erp.service.impl.AuthServiceImpl;
 import com.schoolerp.school_erp.strategy.NotificationFactory;
@@ -31,6 +34,12 @@ class AuthServiceImplTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private SchoolRepository schoolRepository;
+
+    @Mock
+    private RoleRepository roleRepository;
 
     @Mock
     private TokenService tokenService;
@@ -464,6 +473,140 @@ class AuthServiceImplTest {
 
         assertThrows(IllegalStateException.class, () -> {
             authService.resetPassword(request);
+        });
+    }
+
+    @Test
+    void testRegister_Success() {
+        RegisterRequest request = RegisterRequest.builder()
+                .fullName("John Doe")
+                .mobileNo("9876543210")
+                .schoolName("Greenwood High")
+                .emailAddress("john@greenwood.com")
+                .password("password123")
+                .confirmPassword("password123")
+                .build();
+
+        when(schoolRepository.findBySubdomainAndDeletedAtIsNull(anyString()))
+                .thenReturn(Optional.empty());
+
+        UUID generatedSchoolId = UUID.randomUUID();
+        School savedSchool = School.builder()
+                .id(generatedSchoolId)
+                .name("Greenwood High")
+                .subdomain("greenwood-high")
+                .build();
+        when(schoolRepository.save(any(School.class))).thenReturn(savedSchool);
+
+        Role savedRole = Role.builder()
+                .id(UUID.randomUUID())
+                .name("ADMIN")
+                .school(savedSchool)
+                .build();
+        when(roleRepository.save(any(Role.class))).thenReturn(savedRole);
+
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(eq(generatedSchoolId), anyString()))
+                .thenReturn(Optional.empty());
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(eq(generatedSchoolId), anyString()))
+                .thenReturn(Optional.empty());
+
+        boolean result = authService.register(request);
+
+        assertTrue(result);
+        verify(schoolRepository).save(any(School.class));
+        verify(roleRepository).save(any(Role.class));
+        verify(userRepository).save(any(User.class));
+    }
+
+    @Test
+    void testRegister_PasswordsMismatch() {
+        RegisterRequest request = RegisterRequest.builder()
+                .fullName("John Doe")
+                .mobileNo("9876543210")
+                .schoolName("Greenwood High")
+                .emailAddress("john@greenwood.com")
+                .password("password123")
+                .confirmPassword("differentPassword")
+                .build();
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            authService.register(request);
+        });
+    }
+
+    @Test
+    void testRegister_UserAlreadyExists_Email() {
+        RegisterRequest request = RegisterRequest.builder()
+                .fullName("John Doe")
+                .mobileNo("9876543210")
+                .schoolName("Greenwood High")
+                .emailAddress("john@greenwood.com")
+                .password("password123")
+                .confirmPassword("password123")
+                .build();
+
+        when(schoolRepository.findBySubdomainAndDeletedAtIsNull(anyString()))
+                .thenReturn(Optional.empty());
+
+        UUID generatedSchoolId = UUID.randomUUID();
+        School savedSchool = School.builder()
+                .id(generatedSchoolId)
+                .name("Greenwood High")
+                .subdomain("greenwood-high")
+                .build();
+        when(schoolRepository.save(any(School.class))).thenReturn(savedSchool);
+
+        Role savedRole = Role.builder()
+                .id(UUID.randomUUID())
+                .name("ADMIN")
+                .school(savedSchool)
+                .build();
+        when(roleRepository.save(any(Role.class))).thenReturn(savedRole);
+
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(eq(generatedSchoolId), eq("john@greenwood.com")))
+                .thenReturn(Optional.of(new User()));
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            authService.register(request);
+        });
+    }
+
+    @Test
+    void testRegister_UserAlreadyExists_Mobile() {
+        RegisterRequest request = RegisterRequest.builder()
+                .fullName("John Doe")
+                .mobileNo("9876543210")
+                .schoolName("Greenwood High")
+                .emailAddress("john@greenwood.com")
+                .password("password123")
+                .confirmPassword("password123")
+                .build();
+
+        when(schoolRepository.findBySubdomainAndDeletedAtIsNull(anyString()))
+                .thenReturn(Optional.empty());
+
+        UUID generatedSchoolId = UUID.randomUUID();
+        School savedSchool = School.builder()
+                .id(generatedSchoolId)
+                .name("Greenwood High")
+                .subdomain("greenwood-high")
+                .build();
+        when(schoolRepository.save(any(School.class))).thenReturn(savedSchool);
+
+        Role savedRole = Role.builder()
+                .id(UUID.randomUUID())
+                .name("ADMIN")
+                .school(savedSchool)
+                .build();
+        when(roleRepository.save(any(Role.class))).thenReturn(savedRole);
+
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(eq(generatedSchoolId), eq("john@greenwood.com")))
+                .thenReturn(Optional.empty());
+        when(userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(eq(generatedSchoolId), eq("9876543210")))
+                .thenReturn(Optional.of(new User()));
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            authService.register(request);
         });
     }
 }

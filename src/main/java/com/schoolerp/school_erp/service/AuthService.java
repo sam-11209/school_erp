@@ -4,6 +4,7 @@ import com.schoolerp.school_erp.dto.*;
 
 public interface AuthService {
     LoginResponse login(LoginRequest request);
+    boolean register(RegisterRequest request);
     boolean verifyOTP(VerifyOtpRequest request);
     SendOtpResponse sendOTP(SendOtpRequest request);
     SendOtpResponse resendOTP(ResendOtpRequest request);
