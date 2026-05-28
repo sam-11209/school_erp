@@ -6,45 +6,26 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "student_profiles")
+@Table(name = "sections", uniqueConstraints = {
+    @UniqueConstraint(columnNames = {"class_id", "name"})
+})
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class StudentProfile {
+public class Section {
 
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
     private UUID id;
 
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false, unique = true)
-    private User user;
-
-    @Column(name = "admission_number", nullable = false)
-    private String admissionNumber;
-
-    @Column(name = "roll_number")
-    private String rollNumber;
-
-    @Column(name = "class_id", nullable = false)
-    private UUID classId;
-
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "class_id", insertable = false, updatable = false)
+    @JoinColumn(name = "class_id", nullable = false)
     private SchoolClass schoolClass;
 
-    @Column(name = "section_id")
-    private UUID sectionId;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "section_id", insertable = false, updatable = false)
-    private Section section;
-
-    @Column(name = "is_active", nullable = false)
-    @Builder.Default
-    private Boolean isActive = true;
+    @Column(nullable = false)
+    private String name;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
