@@ -381,4 +381,89 @@ class AuthServiceImplTest {
             authService.forgotPassword("   ", "");
         });
     }
+
+    @Test
+    void testResetPassword_Success() {
+        user.setLoginOtp("123456");
+        user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
+        user.setForgotPasswordCount(3);
+        user.setFailedLoginAttempts(2);
+        user.setLockedUntil(OffsetDateTime.now().plusMinutes(10));
+
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+                .thenReturn(Optional.of(user));
+
+        ResetPasswordRequest request = ResetPasswordRequest.builder()
+                .emailId("test@school.com")
+                .code("123456")
+                .newPassword("new-secure-password")
+                .build();
+
+        boolean result = authService.resetPassword(request);
+
+        assertTrue(result);
+        assertNull(user.getLoginOtp());
+        assertNull(user.getLoginOtpExpiresAt());
+        assertEquals(0, user.getForgotPasswordCount());
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertNull(user.getLockedUntil());
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void testResetPassword_InvalidCode() {
+        user.setLoginOtp("123456");
+        user.setLoginOtpExpiresAt(OffsetDateTime.now().plusMinutes(5));
+
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+                .thenReturn(Optional.of(user));
+
+        ResetPasswordRequest request = ResetPasswordRequest.builder()
+                .emailId("test@school.com")
+                .code("wrongcode")
+                .newPassword("new-secure-password")
+                .build();
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            authService.resetPassword(request);
+        });
+    }
+
+    @Test
+    void testResetPassword_ExpiredCode() {
+        user.setLoginOtp("123456");
+        user.setLoginOtpExpiresAt(OffsetDateTime.now().minusMinutes(1)); // Expired
+
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+                .thenReturn(Optional.of(user));
+
+        ResetPasswordRequest request = ResetPasswordRequest.builder()
+                .emailId("test@school.com")
+                .code("123456")
+                .newPassword("new-secure-password")
+                .build();
+
+        assertThrows(IllegalStateException.class, () -> {
+            authService.resetPassword(request);
+        });
+    }
+
+    @Test
+    void testResetPassword_NoActiveOtp() {
+        user.setLoginOtp(null);
+        user.setLoginOtpExpiresAt(null);
+
+        when(userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, "test@school.com"))
+                .thenReturn(Optional.of(user));
+
+        ResetPasswordRequest request = ResetPasswordRequest.builder()
+                .emailId("test@school.com")
+                .code("123456")
+                .newPassword("new-secure-password")
+                .build();
+
+        assertThrows(IllegalStateException.class, () -> {
+            authService.resetPassword(request);
+        });
+    }
 }

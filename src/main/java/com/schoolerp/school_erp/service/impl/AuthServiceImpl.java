@@ -367,6 +367,63 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
+    public boolean resetPassword(ResetPasswordRequest request) {
+        log.info("Resetting password for request: {}", request);
+        UUID schoolId = TenantContext.getCurrentTenant();
+        if (schoolId == null) {
+            throw new IllegalStateException("Tenant School ID must be provided in request header.");
+        }
+
+        String emailId = request.getEmailId();
+        String mobileNo = request.getMobileNo();
+
+        if ((emailId == null || emailId.trim().isEmpty()) && (mobileNo == null || mobileNo.trim().isEmpty())) {
+            throw new IllegalArgumentException("Either email or mobile number must be provided");
+        }
+
+        User user = null;
+        if (emailId != null && !emailId.trim().isEmpty()) {
+            user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, emailId.trim())
+                    .orElse(null);
+        }
+
+        if (user == null && mobileNo != null && !mobileNo.trim().isEmpty()) {
+            user = userRepository.findBySchoolIdAndMobileNoAndDeletedAtIsNull(schoolId, mobileNo.trim())
+                    .orElse(null);
+        }
+
+        if (user == null) {
+            throw new IllegalArgumentException("User not found with matching email or mobile number.");
+        }
+
+        if (user.getLoginOtp() == null || user.getLoginOtpExpiresAt() == null) {
+            throw new IllegalStateException("No active OTP request found. Please request a new OTP first.");
+        }
+
+        if (user.getLoginOtpExpiresAt().isBefore(OffsetDateTime.now())) {
+            throw new IllegalStateException("OTP has expired. Please request a new OTP.");
+        }
+
+        if (!user.getLoginOtp().equals(request.getCode())) {
+            throw new IllegalArgumentException("Invalid OTP code.");
+        }
+
+        // OTP is valid! Let's update password and reset lockout & failed attempts
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.setLoginOtp(null);
+        user.setLoginOtpId(null);
+        user.setLoginOtpExpiresAt(null);
+        user.setForgotPasswordCount(0); // Reset count on successful password reset
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
+        userRepository.save(user);
+
+        log.info("Password reset successfully for user: {}", user.getId());
+        return true;
+    }
+
+    @Override
+    @Transactional
     public boolean changePassword(String email, String oldPassword, String newPassword) {
         UUID schoolId = TenantContext.getCurrentTenant();
         User user = userRepository.findBySchoolIdAndEmailAndDeletedAtIsNull(schoolId, email)

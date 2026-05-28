@@ -109,4 +109,26 @@ public class AuthController {
         }
         return ResponseEntity.badRequest().body("Failed to send reset link");
     }
+
+    /**
+     * Resets a user's password using the OTP code received during the forgot-password flow.
+     * 
+     * Constraints:
+     * - Requires the X-Tenant-ID header.
+     * - Requires a request body containing the OTP code and new password.
+     * - Requires either emailId or mobileNo to identify the user.
+     * - The OTP code must be valid, correct, and not expired (5 minutes).
+     * - Resets the forgotPasswordCount and failed login attempts upon success.
+     * 
+     * @param request payload containing user identifier, OTP code, and new password
+     * @return status message indicating successful reset or validation error
+     */
+    @PostMapping("/reset-password")
+    public ResponseEntity<String> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        boolean reset = authService.resetPassword(request);
+        if (reset) {
+            return ResponseEntity.ok("Password reset successfully");
+        }
+        return ResponseEntity.badRequest().body("Failed to reset password");
+    }
 }
